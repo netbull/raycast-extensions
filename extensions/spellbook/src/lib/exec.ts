@@ -1,8 +1,6 @@
-import { spawn } from "node:child_process";
-
 import { Cache } from "@raycast/api";
 
-import { captureShellEnv, defaultShell } from "./shellEnv";
+import { captureShellEnv } from "./shellEnv";
 
 const ENV_KEY = "shell-env";
 
@@ -32,26 +30,4 @@ export async function getShellEnv(): Promise<NodeJS.ProcessEnv> {
 export function refreshShellEnv(): void {
   memoryEnv = undefined;
   cache.remove(ENV_KEY);
-}
-
-export function spawnInline(
-  command: string,
-  env: NodeJS.ProcessEnv,
-  cwd: string,
-) {
-  // detached puts the shell in its own process group so killInline reaches pipeline children, not just the wrapper shell
-  return spawn(defaultShell(), ["-c", command], { env, cwd, detached: true });
-}
-
-export function killInline(
-  child: ReturnType<typeof spawnInline> | undefined,
-): void {
-  if (child?.pid === undefined) {
-    return;
-  }
-  try {
-    process.kill(-child.pid, "SIGTERM");
-  } catch {
-    // process group already gone
-  }
 }

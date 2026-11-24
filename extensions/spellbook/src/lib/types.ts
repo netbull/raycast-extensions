@@ -9,6 +9,7 @@ export interface SavedCommand {
   keywords: string[];
   runMode: RunMode;
   cwd?: string;
+  paramOrder?: string[];
   createdAt: string;
   updatedAt: string;
 }

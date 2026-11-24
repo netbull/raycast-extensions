@@ -1,5 +1,8 @@
 import { LocalStorage } from "@raycast/api";
 
+import { overriddenValues, parseTemplate } from "./parser";
+import type { SavedCommand } from "./types";
+
 export type LastAction = "run" | "copy" | "paste";
 
 export interface CommandUsage {
@@ -28,23 +31,50 @@ function isCommandUsage(value: unknown): value is CommandUsage {
   );
 }
 
+function parseUsage(raw: unknown): CommandUsage | undefined {
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return isCommandUsage(parsed) ? parsed : undefined;
+  } catch {
+    // corrupted entry — ignore
+    return undefined;
+  }
+}
+
+export function usageEntry(
+  command: SavedCommand,
+  action: LastAction,
+  values: Record<string, string>,
+): CommandUsage {
+  return {
+    action,
+    values: overriddenValues(parseTemplate(command.template), values),
+    usedAt: new Date().toISOString(),
+  };
+}
+
 export async function readUsageState(): Promise<UsageState> {
   const items = await LocalStorage.allItems();
   const state: UsageState = {};
   for (const [key, raw] of Object.entries(items)) {
-    if (!key.startsWith(PREFIX) || typeof raw !== "string") {
+    if (!key.startsWith(PREFIX)) {
       continue;
     }
-    try {
-      const parsed: unknown = JSON.parse(raw);
-      if (isCommandUsage(parsed)) {
-        state[key.slice(PREFIX.length)] = parsed;
-      }
-    } catch {
-      // corrupted entry — ignore
+    const usage = parseUsage(raw);
+    if (usage) {
+      state[key.slice(PREFIX.length)] = usage;
     }
   }
   return state;
+}
+
+export async function readUsage(
+  commandId: string,
+): Promise<CommandUsage | undefined> {
+  return parseUsage(await LocalStorage.getItem(`${PREFIX}${commandId}`));
 }
 
 export async function saveUsage(

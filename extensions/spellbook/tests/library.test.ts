@@ -4,7 +4,14 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emptyLibrary, loadLibrary, removeCommand, saveLibrary, upsertCommand } from "../src/lib/library";
+import {
+  buildSavedCommand,
+  emptyLibrary,
+  loadLibrary,
+  removeCommand,
+  saveLibrary,
+  upsertCommand,
+} from "../src/lib/library";
 import type { SavedCommand } from "../src/lib/types";
 
 function makeCommand(overrides: Partial<SavedCommand> = {}): SavedCommand {
@@ -79,6 +86,23 @@ describe("library", () => {
     expect(() => loadLibrary(path)).toThrow(/Invalid library file/);
   });
 
+  it("round-trips a saved parameter order", () => {
+    const command = makeCommand({ template: "scp {{from}} {{to}}", paramOrder: ["to", "from"] });
+    saveLibrary(path, { version: 1, commands: [command] });
+    expect(loadLibrary(path).commands[0].paramOrder).toEqual(["to", "from"]);
+  });
+
+  it("rejects entries whose parameter order is not a list of names", () => {
+    saveLibrary(path, emptyLibrary());
+    const notAList: unknown = { ...makeCommand(), paramOrder: "to,from" };
+    writeFileSync(path, JSON.stringify({ version: 1, commands: [notAList] }), "utf8");
+    expect(() => loadLibrary(path)).toThrow(/Invalid library file/);
+
+    const notNames: unknown = { ...makeCommand(), paramOrder: ["to", 2] };
+    writeFileSync(path, JSON.stringify({ version: 1, commands: [notNames] }), "utf8");
+    expect(() => loadLibrary(path)).toThrow(/Invalid library file/);
+  });
+
   it("rejects entries missing timestamps", () => {
     saveLibrary(path, emptyLibrary());
     const { createdAt: _createdAt, ...rest } = makeCommand();
@@ -90,5 +114,91 @@ describe("library", () => {
     saveLibrary(path, emptyLibrary());
     writeFileSync(path, "{ not json", "utf8");
     expect(() => loadLibrary(path)).toThrow();
+  });
+});
+
+describe("buildSavedCommand", () => {
+  const now = new Date("2026-11-24T10:00:00.000Z");
+  const draft = {
+    name: "  Tail logs ",
+    template: " docker logs -f {{container}} ",
+    keywords: [" docker", "", "logs ", "  "],
+    runMode: "terminal" as const,
+    cwd: " ~/work ",
+  };
+
+  it("trims the fields, drops blank keywords and stamps a new command", () => {
+    const command = buildSavedCommand(draft, undefined, now);
+
+    expect(command).toEqual({
+      id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      name: "Tail logs",
+      template: "docker logs -f {{container}}",
+      keywords: ["docker", "logs"],
+      runMode: "terminal",
+      cwd: "~/work",
+      createdAt: "2026-11-24T10:00:00.000Z",
+      updatedAt: "2026-11-24T10:00:00.000Z",
+    });
+  });
+
+  it("gives every new command its own id", () => {
+    expect(buildSavedCommand(draft).id).not.toBe(buildSavedCommand(draft).id);
+  });
+
+  it("keeps the id and creation time when updating an existing command", () => {
+    const existing = makeCommand({ id: "id-9", createdAt: "2026-08-01T00:00:00.000Z" });
+
+    const command = buildSavedCommand(draft, existing, now);
+
+    expect(command.id).toBe("id-9");
+    expect(command.createdAt).toBe("2026-08-01T00:00:00.000Z");
+    expect(command.updatedAt).toBe("2026-11-24T10:00:00.000Z");
+  });
+
+  it("leaves the working directory unset when it is blank", () => {
+    expect(buildSavedCommand({ ...draft, cwd: "   " }).cwd).toBeUndefined();
+    expect(buildSavedCommand({ ...draft, cwd: undefined }).cwd).toBeUndefined();
+  });
+
+  it("stores a parameter order only when it differs from the template's", () => {
+    const ssh = { ...draft, template: "ssh -p {{port=22}} {{user=deploy}}@{{host}}" };
+
+    expect(buildSavedCommand({ ...ssh, paramOrder: ["host", "port", "user"] }).paramOrder).toEqual([
+      "host",
+      "port",
+      "user",
+    ]);
+    expect(buildSavedCommand({ ...ssh, paramOrder: ["port", "user", "host"] }).paramOrder).toBeUndefined();
+    expect(buildSavedCommand(ssh).paramOrder).toBeUndefined();
+  });
+
+  it("brings a parameter order left over from an earlier template up to date", () => {
+    const edited = { ...draft, template: "ssh {{user=deploy}}@{{host}} -i {{key=~/.ssh/id}}" };
+
+    const command = buildSavedCommand({ ...edited, paramOrder: ["host", "port", "user"] });
+
+    expect(command.paramOrder).toEqual(["host", "user", "key"]);
+  });
+
+  it("keeps a customized order out of the saved file when it is the template's own", () => {
+    const dir = mkdtempSync(join(tmpdir(), "spellbook-test-"));
+    const path = join(dir, "commands.json");
+
+    upsertCommand(path, buildSavedCommand({ ...draft, template: "scp {{from}} {{to}}", paramOrder: ["from", "to"] }));
+
+    expect(readFileSync(path, "utf8")).not.toContain("paramOrder");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("produces a record the library accepts", () => {
+    const dir = mkdtempSync(join(tmpdir(), "spellbook-test-"));
+    const path = join(dir, "commands.json");
+    const command = buildSavedCommand(draft, undefined, now);
+
+    upsertCommand(path, command);
+
+    expect(loadLibrary(path).commands).toEqual([command]);
+    rmSync(dir, { recursive: true, force: true });
   });
 });

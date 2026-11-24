@@ -1,0 +1,105 @@
+instructions: |
+  Spellbook is the user's personal library of saved shell command templates. A template marks its variable parts as placeholders: {{name}} is a required parameter, {{name=default}} has a default value, and {{name=a|b|c}} is a choice list whose first option is the default.
+
+  - Call get-commands first to find the right command and learn its id and parameters. Never invent an id or a parameter name.
+  - Only run commands that are in the library. If none fits the request, say so and offer to save one with create-command instead of improvising a different command.
+  - When running a command, pass only the parameters the user asked to change. The ones you leave out fall back to their defaults. If a required parameter is unknown, ask the user for it.
+  - Pass parameter values as plain text. They are shell-quoted automatically, so never add quotes, escapes or extra flags to a value. For a choice list, use one of the listed choices.
+  - After a run, show the exact command that ran in a code block and then summarize its output. Say so when the output was cut short or the command timed out.
+  - Commands with the terminal run mode open in the user's terminal and return no output, so point the user there.
+  - When saving a command, turn the parts that are likely to change into placeholders, with defaults taken from the user's example.
+
+evals:
+  - input: "@spellbook which of my saved commands deal with docker?"
+    mocks:
+      get-commands:
+        total: 6
+        matched: 2
+        commands:
+          - id: 5b0c9f0e-2a41-4c55-9d43-0d6a3f0c7b11
+            name: Tail docker logs
+            template: "docker logs --tail {{lines=100}} {{container=api|worker|db}}"
+            parameters:
+              - name: lines
+                required: false
+                default: "100"
+              - name: container
+                required: false
+                default: api
+                choices: [api, worker, db]
+            keywords: [docker, logs]
+            runMode: inline
+          - id: 9d2e1a77-6f3b-4f0a-8a52-41c7e5b9d2c4
+            name: Docker shell
+            template: "docker exec -it {{container}} {{shell=sh|bash}}"
+            parameters:
+              - name: container
+                required: true
+              - name: shell
+                required: false
+                default: sh
+                choices: [sh, bash]
+            keywords: [docker]
+            runMode: terminal
+    expected:
+      - callsTool: get-commands
+      - includes: Tail docker logs
+      - includes: Docker shell
+      - not:
+          callsTool: run-command
+
+  - input: "@spellbook show me the last 500 docker log lines of the worker"
+    mocks:
+      get-commands:
+        total: 6
+        matched: 1
+        commands:
+          - id: 5b0c9f0e-2a41-4c55-9d43-0d6a3f0c7b11
+            name: Tail docker logs
+            template: "docker logs --tail {{lines=100}} {{container=api|worker|db}}"
+            parameters:
+              - name: lines
+                required: false
+                default: "100"
+              - name: container
+                required: false
+                default: api
+                choices: [api, worker, db]
+            keywords: [docker, logs]
+            runMode: inline
+      run-command:
+        name: Tail docker logs
+        command: docker logs --tail 500 worker
+        directory: /Users/me
+        exitCode: 0
+        output: "2026-11-24T09:12:01Z job 4182 finished in 310ms\n2026-11-24T09:12:07Z job 4183 finished in 295ms\n"
+        truncated: false
+        timedOut: false
+    expected:
+      - callsTool: get-commands
+      - callsTool:
+          name: run-command
+          arguments:
+            id: 5b0c9f0e-2a41-4c55-9d43-0d6a3f0c7b11
+      - includes: docker logs --tail 500 worker
+
+  - input: "@spellbook save `kubectl get pods -n staging` as List Pods, with the namespace as a parameter"
+    mocks:
+      create-command:
+        id: 3f7a2c18-0b6d-4e9a-b1f4-7c2d9e5a6b30
+        name: List Pods
+        template: "kubectl get pods -n {{namespace=staging}}"
+        parameters:
+          - name: namespace
+            required: false
+            default: staging
+        keywords: [kubectl]
+        runMode: inline
+    expected:
+      - callsTool:
+          name: create-command
+          arguments:
+            name: List Pods
+            template:
+              - includes: kubectl get pods -n
+              - includes: "{{namespace"

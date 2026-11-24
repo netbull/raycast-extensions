@@ -2,9 +2,10 @@
   "$schema": "https://www.raycast.com/schemas/extension.json",
   "name": "spellbook",
   "title": "Spellbook",
-  "description": "Your parameterized shell command library. Save commands with {{param=default}} placeholders, run them with defaults in two keystrokes, or override any parameter at runtime.",
+  "description": "Save shell commands as templates with parameters and default values, then run, copy or paste them, or ask Raycast AI to fill in the values and run them.",
   "icon": "icon.png",
   "author": "netbull",
+  "platforms": ["macOS"],
   "categories": ["Developer Tools", "Productivity"],
   "license": "MIT",
   "commands": [
@@ -12,15 +13,32 @@
       "name": "search-commands",
       "title": "Search Commands",
       "subtitle": "Spellbook",
-      "description": "Fuzzy-find your saved commands; Enter runs with defaults, Cmd+Enter overrides parameters first.",
+      "description": "Find a saved command and run, copy or paste it. Enter repeats what you did last time with the same values; Cmd+Enter adjusts the parameters first.",
       "mode": "view"
     },
     {
       "name": "save-command",
       "title": "Save Command",
       "subtitle": "Spellbook",
-      "description": "Save a new parameterized command; the template is prefilled from your clipboard when it looks like shell.",
+      "description": "Save a new command template. The command is prefilled from your clipboard when it looks like shell.",
       "mode": "view"
+    }
+  ],
+  "tools": [
+    {
+      "name": "get-commands",
+      "title": "Get Commands",
+      "description": "List the saved commands with their templates, parameters, defaults and choices."
+    },
+    {
+      "name": "run-command",
+      "title": "Run Command",
+      "description": "Run a saved command with its parameters filled in, after showing the exact command for confirmation."
+    },
+    {
+      "name": "create-command",
+      "title": "Create Command",
+      "description": "Save a new command template to the library."
     }
   ],
   "preferences": [
@@ -47,13 +65,13 @@
     }
   ],
   "dependencies": {
-    "@raycast/api": "^1.94.0",
-    "@raycast/utils": "^1.19.0"
+    "@raycast/api": "^2.13.1",
+    "@raycast/utils": "^2.3.3"
   },
   "devDependencies": {
-    "@raycast/eslint-config": "^2.0.4",
-    "@types/node": "^22.13.10",
-    "@types/react": "^19.0.10",
+    "@raycast/eslint-config": "^2.2.0",
+    "@types/node": "26.6.5",
+    "@types/react": "19.3.0",
     "eslint": "^9.22.0",
     "prettier": "^3.5.3",
     "typescript": "^5.8.2",

@@ -2,69 +2,80 @@ import {
   Alert,
   closeMainWindow,
   confirmAlert,
+  PopToRootType,
   showHUD,
   showToast,
   Toast,
   useNavigation,
 } from "@raycast/api";
 
-import { detectDanger } from "../lib/danger";
-import { expandPath } from "../lib/library";
-import { shellQuote } from "../lib/parser";
+import { planRun } from "../lib/run";
 import { preferredTerminal } from "../lib/store";
-import { runInTerminal } from "../lib/terminal";
+import { runInTerminal, terminalName } from "../lib/terminal";
+import type { RunPlan } from "../lib/run";
 import type { SavedCommand } from "../lib/types";
 import RunOutput from "./RunOutput";
 
-type PushFn = ReturnType<typeof useNavigation>["push"];
+export type PushFn = ReturnType<typeof useNavigation>["push"];
 
 export interface PerformRunOptions {
   command: SavedCommand;
   resolved: string;
   push: PushFn;
+  popToRootType?: PopToRootType;
   onWillRun?: () => void;
 }
 
-export async function performRun(options: PerformRunOptions): Promise<void> {
-  const { command, resolved, push, onWillRun } = options;
+async function confirmDanger(plan: RunPlan): Promise<boolean> {
+  if (!plan.danger) {
+    return true;
+  }
+  return confirmAlert({
+    title: "Run dangerous command?",
+    message: `Detected: ${plan.danger.label}\n\n${plan.resolved}`,
+    primaryAction: { title: "Run", style: Alert.ActionStyle.Destructive },
+  });
+}
 
-  const danger = detectDanger(resolved);
-  if (danger) {
-    const confirmed = await confirmAlert({
-      title: "Run dangerous command?",
-      message: `Detected: ${danger.label}\n\n${resolved}`,
-      primaryAction: { title: "Run", style: Alert.ActionStyle.Destructive },
+async function handOffToTerminal(
+  plan: RunPlan,
+  popToRootType: PopToRootType,
+): Promise<void> {
+  const terminal = preferredTerminal();
+  try {
+    await closeMainWindow();
+    await runInTerminal(plan.terminalCommand, terminal);
+    // popping to root unloads the command, so it is only requested once the terminal has the text
+    await showHUD(`Sent to ${terminalName(terminal)}`, { popToRootType });
+  } catch (error) {
+    await showToast({
+      style: Toast.Style.Failure,
+      title: "Terminal handoff failed",
+      message: String(error),
     });
-    if (!confirmed) {
-      return;
-    }
+  }
+}
+
+export async function performRun(options: PerformRunOptions): Promise<void> {
+  const {
+    command,
+    resolved,
+    push,
+    popToRootType = PopToRootType.Default,
+    onWillRun,
+  } = options;
+
+  const plan = planRun(command, resolved);
+  if (!(await confirmDanger(plan))) {
+    return;
   }
 
   onWillRun?.();
 
-  const hasCwd = command.cwd !== undefined && command.cwd !== "";
-  const cwd = expandPath(
-    hasCwd && command.cwd !== undefined ? command.cwd : "~",
-  );
-
   if (command.runMode === "terminal") {
-    const finalCommand = hasCwd
-      ? `cd ${shellQuote(cwd)} && ${resolved}`
-      : resolved;
-    const terminal = preferredTerminal();
-    try {
-      await closeMainWindow();
-      await runInTerminal(finalCommand, terminal);
-      await showHUD(`Sent to ${terminal === "iTerm" ? "iTerm2" : "Terminal"}`);
-    } catch (error) {
-      await showToast({
-        style: Toast.Style.Failure,
-        title: "Terminal handoff failed",
-        message: String(error),
-      });
-    }
+    await handOffToTerminal(plan, popToRootType);
     return;
   }
 
-  push(<RunOutput title={command.name} command={resolved} cwd={cwd} />);
+  push(<RunOutput title={command.name} command={resolved} cwd={plan.cwd} />);
 }

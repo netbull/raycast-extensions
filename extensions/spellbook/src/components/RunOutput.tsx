@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { Action, ActionPanel, Detail, Icon, Keyboard } from "@raycast/api";
 
-import { getShellEnv, killInline, spawnInline } from "../lib/exec";
+import { getShellEnv } from "../lib/exec";
+import { killInline, spawnInline } from "../lib/process";
 
 const MAX_OUTPUT_CHARS = 100_000;
 

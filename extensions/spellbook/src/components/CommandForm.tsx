@@ -1,25 +1,28 @@
 import { useMemo, useState } from "react";
 
-import { randomUUID } from "node:crypto";
-
 import {
   Action,
   ActionPanel,
   Form,
+  Icon,
+  Keyboard,
   popToRoot,
   showToast,
   Toast,
   useNavigation,
 } from "@raycast/api";
 
+import { buildSavedCommand } from "../lib/library";
 import {
   hasMalformedPlaceholder,
+  orderParams,
   parseTemplate,
   substitute,
 } from "../lib/parser";
 import { writeCommand } from "../lib/store";
 import type { ParamDef } from "../lib/parser";
 import type { RunMode, SavedCommand } from "../lib/types";
+import ParamOrderList from "./ParamOrderList";
 
 interface CommandFormProps {
   command?: SavedCommand;
@@ -34,7 +37,15 @@ interface CommandFormState {
   keywords: string;
   runMode: RunMode;
   cwd: string;
+  paramOrder: string[];
 }
+
+// the hint spells the shortcut out, so the two stay next to each other
+const REORDER_SHORTCUT: Keyboard.Shortcut = {
+  modifiers: ["cmd", "shift"],
+  key: "r",
+};
+const REORDER_HINT = "Asked in this order. Press ⌘⇧R to reorder.";
 
 function describeParam(param: ParamDef): string {
   if (param.options) {
@@ -54,27 +65,48 @@ export default function CommandForm(props: CommandFormProps) {
     onSaved,
   } = props;
 
-  const { pop } = useNavigation();
+  const { pop, push } = useNavigation();
   const [state, setState] = useState<CommandFormState>(() => ({
     name: command?.name ?? "",
     template: command?.template ?? prefillTemplate ?? "",
     keywords: command?.keywords.join(", ") ?? "",
     runMode: command?.runMode ?? "inline",
     cwd: command?.cwd ?? "",
+    paramOrder: command?.paramOrder ?? [],
   }));
   const [nameError, setNameError] = useState<string | undefined>(undefined);
   const [templateError, setTemplateError] = useState<string | undefined>(
     undefined,
   );
 
-  const params = useMemo(() => parseTemplate(state.template), [state.template]);
+  const templateParams = useMemo(
+    () => parseTemplate(state.template),
+    [state.template],
+  );
+  const params = useMemo(
+    () => orderParams(templateParams, state.paramOrder),
+    [templateParams, state.paramOrder],
+  );
   const preview = useMemo(
     () => substitute(state.template, {}),
     [state.template],
   );
 
-  const setField = (key: keyof CommandFormState, value: string) => {
+  const setField = <Key extends keyof CommandFormState>(
+    key: Key,
+    value: CommandFormState[Key],
+  ) => {
     setState((previous) => ({ ...previous, [key]: value }));
+  };
+
+  const openParamOrder = () => {
+    push(
+      <ParamOrderList
+        params={templateParams}
+        order={state.paramOrder}
+        onReorder={(order) => setField("paramOrder", order)}
+      />,
+    );
   };
 
   const baseParamsText =
@@ -84,6 +116,8 @@ export default function CommandForm(props: CommandFormProps) {
   const paramsText = hasMalformedPlaceholder(state.template)
     ? `⚠ Malformed {{…}} placeholder — escape a literal } inside a default as \\}\n${baseParamsText}`
     : baseParamsText;
+  // as a command's root view the form keeps Raycast's automatic title; only pushed forms name themselves
+  const pushedTitle = command ? "Edit Command" : "Save Command";
 
   const handleSave = async () => {
     const name = state.name.trim();
@@ -97,20 +131,17 @@ export default function CommandForm(props: CommandFormProps) {
     if (name === "" || template === "") {
       return;
     }
-    const now = new Date().toISOString();
-    const saved: SavedCommand = {
-      id: command?.id ?? randomUUID(),
-      name,
-      template,
-      keywords: state.keywords
-        .split(",")
-        .map((keyword) => keyword.trim())
-        .filter((keyword) => keyword !== ""),
-      runMode: state.runMode,
-      cwd: state.cwd.trim() === "" ? undefined : state.cwd.trim(),
-      createdAt: command?.createdAt ?? now,
-      updatedAt: now,
-    };
+    const saved = buildSavedCommand(
+      {
+        name,
+        template,
+        keywords: state.keywords.split(","),
+        runMode: state.runMode,
+        cwd: state.cwd,
+        paramOrder: state.paramOrder,
+      },
+      command,
+    );
     try {
       writeCommand(saved);
     } catch (error) {
@@ -135,13 +166,22 @@ export default function CommandForm(props: CommandFormProps) {
 
   return (
     <Form
-      navigationTitle={command ? "Edit Command" : "Save Command"}
+      navigationTitle={popToRootAfterSave ? undefined : pushedTitle}
       actions={
         <ActionPanel>
           <Action.SubmitForm
             title={command ? "Update Command" : "Save Command"}
+            icon={Icon.SaveDocument}
             onSubmit={() => void handleSave()}
           />
+          {params.length > 1 ? (
+            <Action
+              title="Reorder Parameters"
+              icon={Icon.ChevronUpDown}
+              shortcut={REORDER_SHORTCUT}
+              onAction={openParamOrder}
+            />
+          ) : null}
         </ActionPanel>
       }
     >
@@ -173,6 +213,7 @@ export default function CommandForm(props: CommandFormProps) {
         }}
       />
       <Form.Description title="Parameters" text={paramsText} />
+      {params.length > 1 ? <Form.Description text={REORDER_HINT} /> : null}
       {params.length > 0 && preview.missing.length === 0 ? (
         <Form.Description title="With defaults" text={preview.command} />
       ) : null}

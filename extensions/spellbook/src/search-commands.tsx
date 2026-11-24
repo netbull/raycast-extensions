@@ -2,22 +2,27 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Action, ActionPanel, Icon, List, useNavigation } from "@raycast/api";
 import { useFrecencySorting } from "@raycast/utils";
+import type { LaunchProps } from "@raycast/api";
 
 import CommandForm from "./components/CommandForm";
 import CommandListItem from "./components/CommandListItem";
-import { defaultValues, parseTemplate } from "./lib/parser";
+import { useQuicklinkLaunch } from "./hooks/useQuicklinkLaunch";
+import { useQuicklinkToken } from "./hooks/useQuicklinkToken";
 import { readLibrary } from "./lib/store";
-import { readUsageState, saveUsage } from "./lib/usage";
+import { readUsageState, saveUsage, usageEntry } from "./lib/usage";
 import type { SavedCommand } from "./lib/types";
-import type { CommandUsage, LastAction, UsageState } from "./lib/usage";
+import type { LastAction, UsageState } from "./lib/usage";
 
-export default function SearchCommands() {
+export default function SearchCommands(props: LaunchProps) {
+  const { launchContext } = props;
+
   const [commands, setCommands] = useState<SavedCommand[]>([]);
   const [usage, setUsage] = useState<UsageState>({});
   const [loadError, setLoadError] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
   const [isShowingDetail, setIsShowingDetail] = useState(false);
   const { push } = useNavigation();
+  const quicklinkToken = useQuicklinkToken();
   const { data: sortedCommands, visitItem } = useFrecencySorting(commands, {
     key: (item) => item.id,
   });
@@ -44,19 +49,7 @@ export default function SearchCommands() {
       action: LastAction,
       values: Record<string, string>,
     ) => {
-      // store only genuine overrides — a default the user merely accepted must keep tracking future template edits
-      const defaults = defaultValues(parseTemplate(command.template));
-      const overrides: Record<string, string> = {};
-      for (const [name, value] of Object.entries(values)) {
-        if (value !== "" && value !== defaults[name]) {
-          overrides[name] = value;
-        }
-      }
-      const entry: CommandUsage = {
-        action,
-        values: overrides,
-        usedAt: new Date().toISOString(),
-      };
+      const entry = usageEntry(command, action, values);
       setUsage((previous) => ({ ...previous, [command.id]: entry }));
       void saveUsage(command.id, entry);
       void visitItem(command);
@@ -64,50 +57,63 @@ export default function SearchCommands() {
     [visitItem],
   );
 
+  const isLaunching = useQuicklinkLaunch({
+    launchContext,
+    commands,
+    isReady: !isLoading,
+    onUsed: recordUse,
+  });
+  const isBusy = isLoading || isLaunching;
+
   return (
     <List
-      isLoading={isLoading}
+      isLoading={isBusy}
       isShowingDetail={isShowingDetail && sortedCommands.length > 0}
       searchBarPlaceholder="Search your spellbook…"
     >
-      <List.EmptyView
-        icon={loadError === undefined ? Icon.Book : Icon.Warning}
-        title={
-          loadError === undefined
-            ? "Your Spellbook is empty"
-            : "Failed to load library"
-        }
-        description={
-          loadError === undefined
-            ? "Save your first command with {{param=default}} placeholders"
-            : `${loadError} — fix the file and reload`
-        }
-        actions={
-          <ActionPanel>
-            <Action
-              title="Save First Command"
-              icon={Icon.Plus}
-              onAction={() => push(<CommandForm onSaved={reload} />)}
-            />
-            <Action
-              title="Reload Library"
-              icon={Icon.ArrowClockwise}
-              onAction={reload}
-            />
-          </ActionPanel>
-        }
-      />
-      {sortedCommands.map((command) => (
-        <CommandListItem
-          key={command.id}
-          command={command}
-          usage={usage[command.id]}
-          isShowingDetail={isShowingDetail}
-          onToggleDetail={() => setIsShowingDetail((previous) => !previous)}
-          onReload={reload}
-          onUsed={(action, values) => recordUse(command, action, values)}
+      {isBusy ? null : (
+        <List.EmptyView
+          icon={loadError === undefined ? Icon.Book : Icon.Warning}
+          title={
+            loadError === undefined
+              ? "Your Spellbook is empty"
+              : "Failed to load library"
+          }
+          description={
+            loadError === undefined
+              ? "Save your first command with {{param=default}} placeholders"
+              : `${loadError} — fix the file and reload`
+          }
+          actions={
+            <ActionPanel>
+              <Action
+                title="Save First Command"
+                icon={Icon.Plus}
+                onAction={() => push(<CommandForm onSaved={reload} />)}
+              />
+              <Action
+                title="Reload Library"
+                icon={Icon.ArrowClockwise}
+                onAction={reload}
+              />
+            </ActionPanel>
+          }
         />
-      ))}
+      )}
+      {isLaunching
+        ? null
+        : sortedCommands.map((command) => (
+            <CommandListItem
+              key={command.id}
+              command={command}
+              usage={usage[command.id]}
+              quicklinkToken={quicklinkToken}
+              isShowingDetail={isShowingDetail}
+              onToggleDetail={() => setIsShowingDetail((previous) => !previous)}
+              onReload={reload}
+              onUsed={(action, values) => recordUse(command, action, values)}
+            />
+          ))}
     </List>
   );
 }

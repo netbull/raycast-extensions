@@ -18,11 +18,12 @@ import {
 
 import { getShellEnv, refreshShellEnv } from "../lib/exec";
 import {
+  commandParams,
   defaultValues,
   effectiveValues,
-  parseTemplate,
   substitute,
 } from "../lib/parser";
+import { buildQuicklink } from "../lib/quicklink";
 import { deleteCommand } from "../lib/store";
 import { removeUsage } from "../lib/usage";
 import type { ParamDef } from "../lib/parser";
@@ -30,11 +31,12 @@ import type { SavedCommand } from "../lib/types";
 import type { CommandUsage, LastAction } from "../lib/usage";
 import CommandForm from "./CommandForm";
 import OverrideForm from "./OverrideForm";
-import { performRun } from "./runCommand";
+import { runSavedCommand } from "./runSavedCommand";
 
 interface CommandListItemProps {
   command: SavedCommand;
   usage?: CommandUsage;
+  quicklinkToken?: string;
   isShowingDetail: boolean;
   onToggleDetail: () => void;
   onReload: () => void;
@@ -92,14 +94,18 @@ function detailMarkdown(
 }
 
 export default function CommandListItem(props: CommandListItemProps) {
-  const { command, usage, isShowingDetail, onToggleDetail, onReload, onUsed } =
-    props;
+  const {
+    command,
+    usage,
+    quicklinkToken,
+    isShowingDetail,
+    onToggleDetail,
+    onReload,
+    onUsed,
+  } = props;
 
   const { push } = useNavigation();
-  const params = useMemo(
-    () => parseTemplate(command.template),
-    [command.template],
-  );
+  const params = useMemo(() => commandParams(command), [command]);
   const effective = useMemo(
     () => effectiveValues(params, usage?.values),
     [params, usage],
@@ -111,38 +117,22 @@ export default function CommandListItem(props: CommandListItemProps) {
 
   const hasMissing = resolvedResult.missing.length > 0;
 
-  const openOverrideForm = (
-    focusParam?: string,
-    seedValues?: Record<string, string>,
-  ) => {
+  const openOverrideForm = () => {
     push(
       <OverrideForm
         command={command}
-        lastValues={seedValues ?? usage?.values}
-        focusParam={focusParam}
+        lastValues={usage?.values}
         onUsed={onUsed}
       />,
     );
   };
 
-  const handleRun = async (values: Record<string, string>) => {
-    const { command: resolved, missing } = substitute(command.template, values);
-    if (missing.length > 0) {
-      // seed the form with the values this run was asked to use, so "Run with Default Values" cannot leak memory back in
-      openOverrideForm(missing[0], values);
-      return;
-    }
-    await performRun({
-      command,
-      resolved,
-      push,
-      onWillRun: () => onUsed("run", values),
-    });
-  };
+  const handleRun = (values: Record<string, string>) =>
+    runSavedCommand({ command, values, push, onUsed });
 
   const handleCopy = async () => {
     if (hasMissing) {
-      openOverrideForm(resolvedResult.missing[0]);
+      openOverrideForm();
       return;
     }
     await Clipboard.copy(resolvedResult.command);
@@ -152,7 +142,7 @@ export default function CommandListItem(props: CommandListItemProps) {
 
   const handlePaste = async () => {
     if (hasMissing) {
-      openOverrideForm(resolvedResult.missing[0]);
+      openOverrideForm();
       return;
     }
     onUsed("paste", effective);
@@ -275,7 +265,7 @@ export default function CommandListItem(props: CommandListItemProps) {
             <Action
               title="Adjust and Run"
               icon={Icon.Pencil}
-              onAction={() => openOverrideForm()}
+              onAction={openOverrideForm}
             />
             {baseActions[second]}
             {baseActions[third]}
@@ -308,6 +298,13 @@ export default function CommandListItem(props: CommandListItemProps) {
               shortcut={Keyboard.Shortcut.Common.New}
               onAction={() => push(<CommandForm onSaved={onReload} />)}
             />
+            {quicklinkToken !== undefined ? (
+              <Action.CreateQuicklink
+                title="Create Quicklink"
+                icon={Icon.Link}
+                quicklink={buildQuicklink(command, quicklinkToken)}
+              />
+            ) : null}
             <Action
               title="Delete Command"
               icon={Icon.Trash}

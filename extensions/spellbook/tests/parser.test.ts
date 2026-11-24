@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  commandParams,
+  customOrder,
   defaultValues,
   effectiveValues,
+  firstParamToFill,
   hasMalformedPlaceholder,
+  moveName,
+  orderParams,
+  overriddenValues,
   parseTemplate,
   shellQuote,
   substitute,
@@ -185,5 +191,145 @@ describe("effectiveValues", () => {
 
   it("ignores last values for params no longer in the template", () => {
     expect(effectiveValues(params, { removed: "x" })).toEqual({ port: "22", env: "dev" });
+  });
+});
+
+describe("overriddenValues", () => {
+  const params = parseTemplate("ssh -p {{port=22}} {{host}} {{env=dev|staging|prod}}");
+
+  it("keeps only the values that differ from the template's defaults", () => {
+    expect(overriddenValues(params, { port: "22", host: "web1", env: "prod" })).toEqual({
+      host: "web1",
+      env: "prod",
+    });
+  });
+
+  it("drops empty values", () => {
+    expect(overriddenValues(params, { port: "", host: "" })).toEqual({});
+  });
+
+  it("keeps nothing when every value is just the default", () => {
+    expect(overriddenValues(params, defaultValues(params))).toEqual({});
+  });
+});
+
+describe("orderParams", () => {
+  const params = parseTemplate("ssh -p {{port=22}} {{user=deploy}}@{{host}}");
+  const names = (ordered: typeof params) => ordered.map((param) => param.name);
+
+  it("keeps the template order when no order is saved", () => {
+    expect(names(orderParams(params))).toEqual(["port", "user", "host"]);
+    expect(names(orderParams(params, []))).toEqual(["port", "user", "host"]);
+  });
+
+  it("puts the parameters in the saved order", () => {
+    expect(names(orderParams(params, ["host", "user", "port"]))).toEqual(["host", "user", "port"]);
+  });
+
+  it("keeps parameters the order does not mention in template order after the ones it does", () => {
+    expect(names(orderParams(params, ["host"]))).toEqual(["host", "port", "user"]);
+  });
+
+  it("ignores names that are no longer in the template and repeated names", () => {
+    expect(names(orderParams(params, ["gone", "host", "host", "port"]))).toEqual(["host", "port", "user"]);
+  });
+
+  it("keeps each parameter's default and choices", () => {
+    const [first] = orderParams(parseTemplate("run {{a=1}} {{env=dev|prod}}"), ["env", "a"]);
+
+    expect(first).toEqual({ name: "env", defaultValue: "dev", options: ["dev", "prod"] });
+  });
+});
+
+describe("commandParams", () => {
+  it("returns a command's parameters in its saved order", () => {
+    const command = { template: "scp {{from}} {{to}}", paramOrder: ["to", "from"] };
+
+    expect(commandParams(command).map((param) => param.name)).toEqual(["to", "from"]);
+  });
+
+  it("falls back to the template order for a command without one", () => {
+    expect(commandParams({ template: "scp {{from}} {{to}}" }).map((param) => param.name)).toEqual(["from", "to"]);
+  });
+});
+
+describe("customOrder", () => {
+  const template = "ssh -p {{port=22}} {{user=deploy}}@{{host}}";
+
+  it("records an order that differs from the template's", () => {
+    expect(customOrder(template, ["host", "port", "user"])).toEqual(["host", "port", "user"]);
+  });
+
+  it("records nothing when the order is just the template's own", () => {
+    expect(customOrder(template, ["port", "user", "host"])).toBeUndefined();
+    expect(customOrder(template, [])).toBeUndefined();
+    expect(customOrder(template, undefined)).toBeUndefined();
+  });
+
+  it("completes a partial order and drops names the template no longer has", () => {
+    expect(customOrder(template, ["gone", "host"])).toEqual(["host", "port", "user"]);
+  });
+
+  it("records nothing for a command without parameters", () => {
+    expect(customOrder("uptime", ["host"])).toBeUndefined();
+  });
+});
+
+describe("firstParamToFill", () => {
+  const template = "ssh -p {{port=22}} {{user}}@{{host}}";
+  const params = parseTemplate(template);
+
+  it("picks the first parameter that still has no value", () => {
+    expect(firstParamToFill(params, effectiveValues(params))).toBe("user");
+    expect(firstParamToFill(params, effectiveValues(params, { user: "deploy" }))).toBe("host");
+  });
+
+  it("follows the saved order rather than the template's", () => {
+    const reordered = commandParams({ template, paramOrder: ["host", "user", "port"] });
+
+    expect(firstParamToFill(reordered, effectiveValues(reordered))).toBe("host");
+  });
+
+  it("falls back to the first required parameter once every one has a value", () => {
+    const values = effectiveValues(params, { user: "deploy", host: "web1" });
+
+    expect(firstParamToFill(params, values)).toBe("user");
+  });
+
+  it("falls back to the first parameter when none is required", () => {
+    const optional = parseTemplate("ls {{flags=-la}} {{dir=.}}");
+
+    expect(firstParamToFill(optional, effectiveValues(optional))).toBe("flags");
+  });
+
+  it("does not treat an empty default as missing", () => {
+    const withEmptyDefault = parseTemplate("grep {{flags=}} {{pattern}}");
+
+    expect(firstParamToFill(withEmptyDefault, effectiveValues(withEmptyDefault))).toBe("pattern");
+  });
+
+  it("has nothing to focus for a command without parameters", () => {
+    expect(firstParamToFill([], {})).toBeUndefined();
+  });
+});
+
+describe("moveName", () => {
+  const names = ["port", "user", "host"];
+
+  it("moves a name one place up or down", () => {
+    expect(moveName(names, "host", -1)).toEqual(["port", "host", "user"]);
+    expect(moveName(names, "port", 1)).toEqual(["user", "port", "host"]);
+  });
+
+  it("leaves the list alone at either end and for an unknown name", () => {
+    expect(moveName(names, "port", -1)).toBe(names);
+    expect(moveName(names, "host", 1)).toBe(names);
+    expect(moveName(names, "gone", 1)).toBe(names);
+  });
+
+  it("does not change the list it was given", () => {
+    moveName(names, "host", -1);
+
+    expect(names).toEqual(["port", "user", "host"]);
   });
 });

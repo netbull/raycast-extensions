@@ -13,7 +13,12 @@ import {
   Keyboard,
 } from "@raycast/api";
 
-import { effectiveValues, parseTemplate, substitute } from "../lib/parser";
+import {
+  commandParams,
+  effectiveValues,
+  firstParamToFill,
+  substitute,
+} from "../lib/parser";
 import type { SavedCommand } from "../lib/types";
 import type { LastAction } from "../lib/usage";
 import { performRun } from "./runCommand";
@@ -21,31 +26,23 @@ import { performRun } from "./runCommand";
 interface OverrideFormProps {
   command: SavedCommand;
   lastValues?: Record<string, string>;
-  focusParam?: string;
   onUsed?: (action: LastAction, values: Record<string, string>) => void;
 }
 
 export default function OverrideForm(props: OverrideFormProps) {
-  const { command, lastValues, focusParam, onUsed } = props;
+  const { command, lastValues, onUsed } = props;
 
   const { push } = useNavigation();
-  const params = useMemo(
-    () => parseTemplate(command.template),
-    [command.template],
-  );
+  const params = useMemo(() => commandParams(command), [command]);
   const [values, setValues] = useState<Record<string, string>>(() =>
     effectiveValues(params, lastValues),
   );
 
-  const focusName = useMemo(() => {
-    if (focusParam !== undefined) {
-      return focusParam;
-    }
-    const firstRequired = params.find(
-      (param) => param.defaultValue === undefined,
-    );
-    return (firstRequired ?? params[0])?.name;
-  }, [focusParam, params]);
+  // decided once from the starting values, so the focus does not jump to the next field while typing
+  const focusName = useMemo(
+    () => firstParamToFill(params, effectiveValues(params, lastValues)),
+    [params, lastValues],
+  );
 
   const { command: resolved, missing } = useMemo(
     () => substitute(command.template, values),

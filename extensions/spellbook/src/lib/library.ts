@@ -1,10 +1,21 @@
+import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 
-import type { Library, SavedCommand } from "./types";
+import { customOrder } from "./parser";
+import type { Library, RunMode, SavedCommand } from "./types";
 
 export const DEFAULT_LIBRARY_PATH = "~/.config/spellbook/commands.json";
+
+export interface CommandDraft {
+  name: string;
+  template: string;
+  keywords: string[];
+  runMode: RunMode;
+  cwd?: string;
+  paramOrder?: string[];
+}
 
 export function expandPath(path: string): string {
   if (path === "~") {
@@ -20,6 +31,29 @@ export function emptyLibrary(): Library {
   return { version: 1, commands: [] };
 }
 
+export function buildSavedCommand(
+  draft: CommandDraft,
+  existing?: SavedCommand,
+  now: Date = new Date(),
+): SavedCommand {
+  const timestamp = now.toISOString();
+  const template = draft.template.trim();
+  const cwd = draft.cwd?.trim() ?? "";
+  return {
+    id: existing?.id ?? randomUUID(),
+    name: draft.name.trim(),
+    template,
+    keywords: draft.keywords
+      .map((keyword) => keyword.trim())
+      .filter((keyword) => keyword !== ""),
+    runMode: draft.runMode,
+    cwd: cwd === "" ? undefined : cwd,
+    paramOrder: customOrder(template, draft.paramOrder),
+    createdAt: existing?.createdAt ?? timestamp,
+    updatedAt: timestamp,
+  };
+}
+
 function isSavedCommand(value: unknown): value is SavedCommand {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -33,6 +67,9 @@ function isSavedCommand(value: unknown): value is SavedCommand {
     command.keywords.every((keyword) => typeof keyword === "string") &&
     (command.runMode === "inline" || command.runMode === "terminal") &&
     (command.cwd === undefined || typeof command.cwd === "string") &&
+    (command.paramOrder === undefined ||
+      (Array.isArray(command.paramOrder) &&
+        command.paramOrder.every((name) => typeof name === "string"))) &&
     typeof command.createdAt === "string" &&
     typeof command.updatedAt === "string"
   );

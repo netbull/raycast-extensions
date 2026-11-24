@@ -1,3 +1,5 @@
+import type { SavedCommand } from "./types";
+
 export interface ParamDef {
   name: string;
   defaultValue?: string;
@@ -74,6 +76,60 @@ export function parseTemplate(template: string): ParamDef[] {
   return [...seen.values()];
 }
 
+// parameters the saved order does not mention keep their template order, after the ones it does
+export function orderParams(params: ParamDef[], order?: string[]): ParamDef[] {
+  if (!order || order.length === 0) {
+    return params;
+  }
+  const rank = new Map<string, number>();
+  for (const name of order) {
+    if (!rank.has(name)) {
+      rank.set(name, rank.size);
+    }
+  }
+  return params
+    .map((param, index) => ({
+      param,
+      position: rank.get(param.name) ?? rank.size + index,
+    }))
+    .sort((a, b) => a.position - b.position)
+    .map((entry) => entry.param);
+}
+
+export function commandParams(
+  command: Pick<SavedCommand, "template" | "paramOrder">,
+): ParamDef[] {
+  return orderParams(parseTemplate(command.template), command.paramOrder);
+}
+
+// undefined when the order is simply the template's own, so the library file only records a deliberate choice
+export function customOrder(
+  template: string,
+  order?: string[],
+): string[] | undefined {
+  const params = parseTemplate(template);
+  const names = orderParams(params, order).map((param) => param.name);
+  return names.every((name, index) => name === params[index].name)
+    ? undefined
+    : names;
+}
+
+export function moveName(
+  names: string[],
+  name: string,
+  offset: number,
+): string[] {
+  const from = names.indexOf(name);
+  const to = from + offset;
+  if (from < 0 || to < 0 || to >= names.length) {
+    return names;
+  }
+  const moved = [...names];
+  moved.splice(from, 1);
+  moved.splice(to, 0, name);
+  return moved;
+}
+
 export function hasMalformedPlaceholder(template: string): boolean {
   const residue = protectEscapes(template).replace(PLACEHOLDER_RE, "");
   return MALFORMED_RE.test(residue);
@@ -104,6 +160,21 @@ export function defaultValues(params: ParamDef[]): Record<string, string> {
   return values;
 }
 
+export function overriddenValues(
+  params: ParamDef[],
+  values: Record<string, string>,
+): Record<string, string> {
+  // only genuine overrides count — a default the user merely accepted must keep tracking future template edits
+  const defaults = defaultValues(params);
+  const overrides: Record<string, string> = {};
+  for (const [name, value] of Object.entries(values)) {
+    if (value !== "" && value !== defaults[name]) {
+      overrides[name] = value;
+    }
+  }
+  return overrides;
+}
+
 export function effectiveValues(
   params: ParamDef[],
   lastValues?: Record<string, string>,
@@ -124,6 +195,16 @@ export function effectiveValues(
     values[param.name] = last;
   }
   return values;
+}
+
+// where a form should put the cursor: the first parameter still without a value, else the first required one, else simply the first
+export function firstParamToFill(
+  params: ParamDef[],
+  values: Record<string, string>,
+): string | undefined {
+  const empty = params.find((param) => values[param.name] === undefined);
+  const required = params.find((param) => param.defaultValue === undefined);
+  return (empty ?? required ?? params[0])?.name;
 }
 
 export function substitute(
