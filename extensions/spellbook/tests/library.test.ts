@@ -1,6 +1,6 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -10,6 +10,7 @@ import {
   loadLibrary,
   removeCommand,
   saveLibrary,
+  setParamOrder,
   upsertCommand,
 } from "../src/lib/library";
 import type { SavedCommand } from "../src/lib/types";
@@ -101,6 +102,47 @@ describe("library", () => {
     const notNames: unknown = { ...makeCommand(), paramOrder: ["to", 2] };
     writeFileSync(path, JSON.stringify({ version: 1, commands: [notNames] }), "utf8");
     expect(() => loadLibrary(path)).toThrow(/Invalid library file/);
+  });
+
+  it("saves a new parameter order on a command and leaves the others alone", () => {
+    upsertCommand(path, makeCommand({ template: "scp {{from}} {{to}}" }));
+    upsertCommand(path, makeCommand({ id: "id-2", name: "Other", template: "ssh {{user}}@{{host}}" }));
+
+    setParamOrder(path, "id-1", ["to", "from"]);
+
+    const [first, second] = loadLibrary(path).commands;
+    expect(first.paramOrder).toEqual(["to", "from"]);
+    expect(first.updatedAt).not.toBe("2026-08-01T00:00:00.000Z");
+    expect(first.createdAt).toBe("2026-08-01T00:00:00.000Z");
+    expect(second).toEqual(makeCommand({ id: "id-2", name: "Other", template: "ssh {{user}}@{{host}}" }));
+  });
+
+  it("drops the saved order again when the parameters are put back in template order", () => {
+    upsertCommand(path, makeCommand({ template: "scp {{from}} {{to}}", paramOrder: ["to", "from"] }));
+
+    setParamOrder(path, "id-1", ["from", "to"]);
+
+    expect(loadLibrary(path).commands[0].paramOrder).toBeUndefined();
+    expect(readFileSync(path, "utf8")).not.toContain("paramOrder");
+  });
+
+  it("keeps fields it does not know about when saving a parameter order", () => {
+    const withExtra: unknown = { ...makeCommand({ template: "scp {{from}} {{to}}" }), notes: "kept" };
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify({ version: 1, commands: [withExtra] }), "utf8");
+
+    setParamOrder(path, "id-1", ["to", "from"]);
+
+    expect(JSON.parse(readFileSync(path, "utf8")).commands[0]).toMatchObject({
+      notes: "kept",
+      paramOrder: ["to", "from"],
+    });
+  });
+
+  it("refuses to save an order for a command that is gone", () => {
+    upsertCommand(path, makeCommand());
+
+    expect(() => setParamOrder(path, "id-missing", ["a"])).toThrow("This command is no longer in the library");
   });
 
   it("rejects entries missing timestamps", () => {

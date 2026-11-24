@@ -5,6 +5,7 @@ import {
   expandPath,
   loadLibrary,
   removeCommand,
+  setParamOrder,
   upsertCommand,
 } from "./library";
 import type { Library, SavedCommand, TerminalApp } from "./types";
@@ -24,6 +25,10 @@ export function writeCommand(command: SavedCommand): Library {
 
 export function deleteCommand(id: string): Library {
   return removeCommand(libraryPath(), id);
+}
+
+export function saveParamOrder(id: string, order: string[]): Library {
+  return setParamOrder(libraryPath(), id, order);
 }
 
 export function preferredTerminal(): TerminalApp {

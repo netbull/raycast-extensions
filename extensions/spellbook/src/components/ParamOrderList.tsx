@@ -60,7 +60,7 @@ export default function ParamOrderList(props: ParamOrderListProps) {
     >
       <List.Section
         title="Parameters"
-        subtitle="In the order the form asks for them"
+        subtitle="⌘⌥↑ and ⌘⌥↓ move the selected one"
       >
         {names.map((name, index) => (
           <List.Item

@@ -123,12 +123,19 @@ export default function CommandListItem(props: CommandListItemProps) {
         command={command}
         lastValues={usage?.values}
         onUsed={onUsed}
+        onReordered={onReload}
       />,
     );
   };
 
   const handleRun = (values: Record<string, string>) =>
-    runSavedCommand({ command, values, push, onUsed });
+    runSavedCommand({
+      command,
+      values,
+      push,
+      onUsed,
+      onReordered: onReload,
+    });
 
   const handleCopy = async () => {
     if (hasMissing) {

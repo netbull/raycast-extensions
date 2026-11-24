@@ -125,6 +125,27 @@ export function upsertCommand(path: string, command: SavedCommand): Library {
   return library;
 }
 
+export function setParamOrder(
+  path: string,
+  id: string,
+  order: string[],
+): Library {
+  const library = loadLibrary(path);
+  const index = library.commands.findIndex((existing) => existing.id === id);
+  if (index < 0) {
+    throw new Error("This command is no longer in the library");
+  }
+  const command = library.commands[index];
+  // spread rather than rebuild, so fields this version does not know about survive
+  library.commands[index] = {
+    ...command,
+    paramOrder: customOrder(command.template, order),
+    updatedAt: new Date().toISOString(),
+  };
+  saveLibrary(path, library);
+  return library;
+}
+
 export function removeCommand(path: string, id: string): Library {
   const library = loadLibrary(path);
   library.commands = library.commands.filter((existing) => existing.id !== id);

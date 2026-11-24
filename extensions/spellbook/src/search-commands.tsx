@@ -62,6 +62,7 @@ export default function SearchCommands(props: LaunchProps) {
     commands,
     isReady: !isLoading,
     onUsed: recordUse,
+    onReload: reload,
   });
   const isBusy = isLoading || isLaunching;
 

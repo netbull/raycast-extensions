@@ -20,11 +20,12 @@ interface QuicklinkLaunchOptions {
     action: LastAction,
     values: Record<string, string>,
   ) => void;
+  onReload: () => void;
 }
 
 // returns true while a quicklink launch is still deciding which view to show
 export function useQuicklinkLaunch(options: QuicklinkLaunchOptions): boolean {
-  const { launchContext, commands, isReady, onUsed } = options;
+  const { launchContext, commands, isReady, onUsed, onReload } = options;
 
   const { push } = useNavigation();
   const [pending, setPending] = useState<QuicklinkContext | undefined>(() =>
@@ -59,6 +60,7 @@ export function useQuicklinkLaunch(options: QuicklinkLaunchOptions): boolean {
             command={command}
             lastValues={usage?.values}
             onUsed={used}
+            onReordered={onReload}
           />,
         );
         return;
@@ -69,6 +71,7 @@ export function useQuicklinkLaunch(options: QuicklinkLaunchOptions): boolean {
         push,
         popToRootType: PopToRootType.Immediate,
         onUsed: used,
+        onReordered: onReload,
       });
     };
 
@@ -81,7 +84,7 @@ export function useQuicklinkLaunch(options: QuicklinkLaunchOptions): boolean {
         }),
       )
       .finally(() => setPending(undefined));
-  }, [pending, isReady, commands, push, onUsed]);
+  }, [pending, isReady, commands, push, onUsed, onReload]);
 
   return pending !== undefined;
 }

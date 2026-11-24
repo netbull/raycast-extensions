@@ -13,18 +13,24 @@ export interface RunSavedCommandOptions {
   push: PushFn;
   popToRootType?: PopToRootType;
   onUsed: (action: LastAction, values: Record<string, string>) => void;
+  onReordered?: () => void;
 }
 
 export async function runSavedCommand(
   options: RunSavedCommandOptions,
 ): Promise<void> {
-  const { command, values, push, popToRootType, onUsed } = options;
+  const { command, values, push, popToRootType, onUsed, onReordered } = options;
 
   const { command: resolved, missing } = substitute(command.template, values);
   if (missing.length > 0) {
     // seed the form with the values this run was asked to use, so "Run with Default Values" cannot leak memory back in
     push(
-      <OverrideForm command={command} lastValues={values} onUsed={onUsed} />,
+      <OverrideForm
+        command={command}
+        lastValues={values}
+        onUsed={onUsed}
+        onReordered={onReordered}
+      />,
     );
     return;
   }
